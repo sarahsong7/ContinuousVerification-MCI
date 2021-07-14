@@ -100,6 +100,7 @@ public class Patient extends CS {
                 currentHospital = null;
                 world.removeChild(this);
                 world.savedPatientCount++;                                  // Number of Saved patients
+//                System.out.println(world.savedPatientCount);
             }
         }
     }

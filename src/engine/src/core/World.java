@@ -44,17 +44,17 @@ public class World extends SoSObject{
     private final ArrayList<String> firefighterNames = new ArrayList<>();
     private final ArrayList<String> AmbulanceNames = new ArrayList<>();
     int patientCounter = 0;
-    int fireFighterCounter = 0;
+    public int fireFighterCounter = 0;
     int ambulanceCounter = 0;
     int currentFirefighterCounter = 0;
 
 
     // Initial Values
-//    public static final int maxPatient = 294;
-    public static final int maxPatient = 20;
-    //    public static final int maxPatient = 100;
+    public static final int maxPatient = 294;
+//    public static final int maxPatient = 20;
+//    public static final int maxPatient = 100;
 //    public static final int maxPatient = 65;
-    public static final int maxFireFighter = 40;
+    public static final int maxFireFighter = 4;
     public static final int maxHospital = 4;
     public static final int maxAmbulance = 40;
     public static final int maxBridgehead = 4;
@@ -66,6 +66,7 @@ public class World extends SoSObject{
     public ArrayList<Hospital> hospitals = new ArrayList<>(maxHospital);
     public ArrayList<Bridgehead> bridgeheads = new ArrayList<>(maxBridgehead);
     public ArrayList<Ambulance> ambulances = new ArrayList<>(maxAmbulance);
+    public ArrayList<Long> verificationTime = new ArrayList<Long>();
 
     public static final String fireFighterPrefix = "FF";
     //public static final String ambulancePrefix = "AM";
@@ -119,7 +120,7 @@ public class World extends SoSObject{
         addChild(router);
 
         createObjects();
-//        writeScenario();          // old version
+        writeScenario();          // old version
 //        writeScenario1();         // baseline
 //        writeScenario2();         // 2배의 소방관을 투입
 //        writeScenario3();         // 3배의 소방관을 투입
@@ -267,7 +268,7 @@ public class World extends SoSObject{
         addChild(organization);
     }
 
-    int frameCount = 0;
+    public int frameCount = 0;
     public int savedPatientCount = 0;
     @Override
     public void onUpdate() {
@@ -286,12 +287,11 @@ public class World extends SoSObject{
             printFireFighterLog(false);
             printAmbulanceLog(false);
             frameCount++;
-            System.out.println("FrameCount: " + frameCount);
+//            System.out.println("FrameCount: " + frameCount);
         }
-
         ArrayList<Stimulus> mustRemove = new ArrayList<>();
         for(Stimulus stimulus : stimuli) {
-            if(stimulus.frame == Time.getFrameCount()) {
+            if(stimulus.frame == frameCount) {//Time.getFrameCount()) {
                 stimulus.execute();
                 mustRemove.add(stimulus);
             }
@@ -308,20 +308,24 @@ public class World extends SoSObject{
             Cell frameCountCell = row.createCell(0);
             Cell savedPatientCell = row.createCell(1);
             Cell rescuedPatientCell = row.createCell(2);
+            Cell patientOccurrenceCell = row.createCell(3);
 
             frameCountCell.setCellValue("frame count");
             savedPatientCell.setCellValue("number of treated patients");
             rescuedPatientCell.setCellValue("number of rescued patients");
+            patientOccurrenceCell.setCellValue("number of total patients");
         }
 
         Row row = patientSheet.createRow(patientSheet.getPhysicalNumberOfRows());
         Cell frameCountCell = row.createCell(0);
         Cell savedPatientCell = row.createCell(1);
         Cell rescuedPatientCell = row.createCell(2);
+        Cell patientOccurrenceCell = row.createCell(3);
 
         frameCountCell.setCellValue(frameCount);
         savedPatientCell.setCellValue(savedPatientCount);
         rescuedPatientCell.setCellValue(rescuedPatientCount);
+        patientOccurrenceCell.setCellValue(patients.size());
     }
 
 
@@ -484,8 +488,19 @@ public class World extends SoSObject{
         ExcelHelper.getCell(row, 1).setCellValue(maxBridgehead);
         row = ExcelHelper.nextRow(row);
 
+        ExcelHelper.getCell(row, 0).setCellValue("saved patients");
+        ExcelHelper.getCell(row, 0).setCellStyle(headerStyle);
+        for (int i = 1; i<=savedPatientList.size(); i++) {
+            ExcelHelper.getCell(row, i).setCellValue(savedPatientList.get(i-1));
+        }
+        ExcelHelper.getCell(row, savedPatientList.size()+1).setCellValue(savedPatientCount);
+        row = ExcelHelper.nextRow(row);
 
-
+        ExcelHelper.getCell(row, 0).setCellValue("verification time");
+        ExcelHelper.getCell(row, 0).setCellStyle(headerStyle);
+        for (int i = 1; i<=verificationTime.size(); i++) {
+            ExcelHelper.getCell(row, i).setCellValue(verificationTime.get(i-1));
+        }
 
         printPatientLog(true);
         printFireFighterLog(true);
@@ -501,7 +516,10 @@ public class World extends SoSObject{
         ExcelHelper.save(workbook, filePath);
     }
 
-
+    ArrayList<Integer> savedPatientList = new ArrayList<Integer>();
+    public void setSavedPatients(ArrayList<Integer> patients) {
+        savedPatientList=patients;
+    }
     public boolean contains(SoSObject object) {
         return children.contains(object);
     }
@@ -514,23 +532,8 @@ public class World extends SoSObject{
         patients.add(patient);
         patient.setStatus(Patient.Status.random());
         if(position == null) {
-            Position randomPosition = null;
-
-            while (true) {
-                //randomPosition = GlobalRandom.nextPosition(Map.mapSize.width, Map.mapSize.height);
-                randomPosition = GlobalRandom.nextPosition(Map.mapSize.width / 8, 7 * Map.mapSize.width / 8,
-                        Map.mapSize.height / 8, 7 * Map.mapSize.width / 8);
-                boolean isBridgehead = false;
-                for (Bridgehead zone : bridgeheads) {
-                    if (zone.isBridgehead(randomPosition)) {
-                        isBridgehead = true;
-                        break;
-                    }
-                }
-                if (isBridgehead == false) break;
-            }
-
-            patient.setPosition(randomPosition);
+            addPatient();
+            return;
         } else {
             patient.setPosition(position);
         }
@@ -1216,6 +1219,43 @@ public class World extends SoSObject{
         addChild(ambulance);
     }
 
+    public void addPatient() {
+        Patient patient = new Patient(this, "Patient" + ++patientCounter);
+        patients.add(patient);
+        patient.setStatus(Patient.Status.random());
+        Position randomPosition = null;
+
+        while (true) {
+            //randomPosition = GlobalRandom.nextPosition(Map.mapSize.width, Map.mapSize.height);
+            randomPosition = GlobalRandom.nextPosition(Map.mapSize.width / 8, 7 * Map.mapSize.width / 8,
+                        Map.mapSize.height / 8, 7 * Map.mapSize.width / 8);
+            boolean isBridgehead = false;
+            for (Bridgehead zone : bridgeheads) {
+                if (zone.isBridgehead(randomPosition)) {
+                    isBridgehead = true;
+                    break;
+                }
+            }
+            if (isBridgehead == false) break;
+        }
+
+        patient.setPosition(randomPosition);
+        this.addChild(patient);
+
+        ArrayList<Patient> data = new ArrayList<>();
+        data.add(patient);
+
+
+        for(FireFighter fireFighter: fireFighters) {
+            Msg msg = new Msg()
+                    .setFrom(fireFighterPrefix)
+                    .setTo(fireFighter.name)
+                    .setTitle("patientsMemory")
+                    .setData(data);
+            router.route(msg);
+        }
+    }
+
     public void onAddFireFighter(int frame, int count) {
         for(int i = 0; i < count; ++i) {
             stimuli.add(new AddEntity(this, frame, this::addFireFighter));
@@ -1227,7 +1267,15 @@ public class World extends SoSObject{
             stimuli.add(new AddEntity(this, frame, this::addAmbulance));
         }
     }
+
+    public void onAddPatient(int frame, int count) {
+        System.out.println("frameCount in addPatient: "+frameCount);
+        for (int i = 0; i<count; i++) {
+            stimuli.add(new AddEntity(this, frame, this::addPatient));
+        }
+    }
     public boolean isFinished() {
-        return !_canUpdate;
+        return frameCount>4000? true: false;
+//        return !_canUpdate;
     }
 }

@@ -1,3 +1,4 @@
+import agents.Patient;
 import core.World;
 import misc.Time;
 
@@ -5,6 +6,8 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.*;
 import java.awt.image.BufferStrategy;
+import java.io.*;
+import java.util.ArrayList;
 import java.util.Scanner;
 
 // Add parts of key
@@ -20,8 +23,18 @@ import java.util.Scanner;
  */
 
 public class SoSSimulationProgram implements Runnable, KeyListener {
-    final int MAX_SIMULATION_COUNT = 2;
- 
+    final int MAX_SIMULATION_COUNT = 1;
+    final int ADDED_PATIENTS= 20;
+    final int ADDED_FF1 = 6;
+    final int ADDED_FF2 = 3;
+    final double SUCCESS_RATE = 0.7;
+    final boolean isCV = true;
+    final boolean isSlice = true;
+    double OMIndA = 1.0;
+    double risk = 0.00;
+    double riskAdd = 0.0011;
+    final double OMIndR = 1.0;
+
     final int SIMULATION_WIDTH = 910;
     final int SIMULATION_HEIGHT = 910;
 //    final int CONSOLE_WIDTH = 200;
@@ -29,7 +42,7 @@ public class SoSSimulationProgram implements Runnable, KeyListener {
     JFrame frame;
     Canvas canvas;
     BufferStrategy bufferStrategy;
-    boolean isExpert = false;
+    boolean isExpert = true;
 
 
     public SoSSimulationProgram(){
@@ -82,6 +95,7 @@ public class SoSSimulationProgram implements Runnable, KeyListener {
 
     }
 
+    ArrayList<Integer> savedPatientsPerWorld =new ArrayList<Integer>();
 
     boolean pause = false;
 
@@ -131,7 +145,6 @@ public class SoSSimulationProgram implements Runnable, KeyListener {
         init();
 
         while(running){
-
             beginLoopTime = System.nanoTime();
             render();
 
@@ -142,24 +155,107 @@ public class SoSSimulationProgram implements Runnable, KeyListener {
             } else { // pause
                 frame.setVisible(false);
                 if(isExpert) {
-                    expertMode();
+                    pause = false;
+                    update((int) ((currentUpdateTime - lastUpdateTime) / (1000 * 1000)));
+
+                    if (isCV) {
+
+                        //여기다 이제 얼만큼 FF add 할지 다른 프로그램으로 정하고,
+                        int numFF = world.fireFighterCounter;
+                        System.out.println(numFF);
+                        String strFF = "";
+                        for (int i = 1; i<=numFF; i++) {
+                            strFF+=(" numP"+i+" dead"+i);
+                        }
+
+                        int numPatient=0;// 현재 안고쳐진 환자수 구하기
+                        for (Patient patient: world.patients) {
+                            if (!patient.isSaved)
+                                numPatient++;
+                        }
+                        try {
+                            String result;
+                            InputStream is;
+                            System.out.println("IN");
+                            String propStr = "echo P=? [(";
+                            for (int i =1; i<numFF; i++) {
+                                propStr += ("dead"+i+"+");
+                            }
+                            propStr += "dead"+numFF+"^<1) U (";
+                            for (int i =1; i<numFF; i++) {
+                                propStr += ("numP"+i+"+");
+                            }
+                            propStr += ("numP"+numFF+"^>MAX)] > prop.pctl &&");
+
+                            if(isSlice) {
+                                is = Runtime.getRuntime().exec("cmd.exe /c " +
+                                        "cd C:\\cygwin64\\home\\Sarah\\prism\\classes && " +
+                                        "java parser.PrismParser -s MCISoS_original.prism" + strFF + " > ..\\bin\\MCISoS_slice.prism &&" + // 1. 모델에서 소방관 수 만큼 slice,
+                                        "cd ..\\bin &&" +
+                                        propStr +
+                                        "prism.bat MCISoS_slice.prism prop.pctl -prop 1 -sim -simmethod ci -const RISK="+risk+ " -simsamples 1000").getInputStream(); // 2. 모델에서 환자수 쓰기, 소방관 수 만큼 true
+                            } else {
+                                is = Runtime.getRuntime().exec("cmd.exe /c " +
+                                        "cd C:\\cygwin64\\home\\Sarah\\prism\\bin && " +
+                                        propStr +
+                                        "prism.bat MCISoS_original.prism prop.pctl -prop 1 -sim -simmethod ci -const RISK="+risk+ " -simsamples 1000").getInputStream(); // 1. 모델에서 환자수 쓰기, 소방관 수만큼 true,
+                            }
+                            BufferedReader br = new BufferedReader(new InputStreamReader(is, "UTF-8"));
+                            while ((result =br.readLine()) != null) {
+                                System.out.println(result);
+                                if(result.startsWith("Result:")){ // 3. 검증 결과 읽기
+                                    System.out.println(result);
+                                    String[] value = result.split(" ");
+                                    if (Double.parseDouble(value[1])<SUCCESS_RATE) {
+                                        int addedFF = (int) (ADDED_FF1 * OMIndR);
+                                        world.onAddFireFighter(world.frameCount + 1, addedFF);
+                                    } else {
+                                        int addedFF = (int) (ADDED_FF2 * OMIndR);
+                                        world.onAddFireFighter(world.frameCount + 1, addedFF);
+                                    }
+                                }
+                            }
+                        } catch (UnsupportedEncodingException e) {
+                            e.printStackTrace();
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                        }
+                        world.verificationTime.add((System.nanoTime()-currentUpdateTime)/1000000000);
+                        update((int) ((currentUpdateTime - lastUpdateTime) / (1000 * 1000)));
+//                    expertMode();
+                    }
                 } else {
                     beginnerMode();
                 }
+                risk += riskAdd;
+                frame.setVisible(true);
+            }
+
+            if (world.frameCount==600 || world.frameCount==700 || world.frameCount==800 || world.frameCount==900) {
+                int numPatient=0;// 현재 안고쳐진 환자수 구하기
+                for (Patient patient: world.patients) {
+                    if (!patient.isSaved)
+                        numPatient++;
+                }
+//                OMIndA = ((double) numPatient/world.patients.size() +OMIndA)/2;
+                pause = true;
             }
 
             endLoopTime = System.nanoTime();
             deltaLoop = endLoopTime - beginLoopTime;
 
-            if(deltaLoop > desiredDeltaLoop){
-                //Do nothing. We are already late.
-            }else{
-                try{
-                    Thread.sleep((desiredDeltaLoop - deltaLoop)/(1000*1000));
-                }catch(InterruptedException e){
-                    //Do nothing
-                }
+            if (world.frameCount >4000 && simulation_count >=MAX_SIMULATION_COUNT) {
+                running =false;
             }
+//            if(deltaLoop > desiredDeltaLoop){
+//                //Do nothing. We are already late.
+//            }else{
+//                try{
+//                    Thread.sleep((desiredDeltaLoop - deltaLoop)/(1000*1000));
+//                }catch(InterruptedException e){
+//                    //Do nothing
+//                }
+//            }
         }
     }
 
@@ -211,7 +307,9 @@ public class SoSSimulationProgram implements Runnable, KeyListener {
             timeImpl.update(deltaTime);
             world.update();
             if(world.isFinished() && simulation_count < MAX_SIMULATION_COUNT) {
+                savedPatientsPerWorld.add(world.savedPatientCount);
                 simulation_count++;
+                System.out.println("simulation_count: "+simulation_count);
                 world = new World();
             }
             time = 0;
@@ -228,6 +326,7 @@ public class SoSSimulationProgram implements Runnable, KeyListener {
     }
 
     protected void clear() {
+        world.setSavedPatients(savedPatientsPerWorld);
         world.clear();
     }
 
@@ -256,6 +355,8 @@ public class SoSSimulationProgram implements Runnable, KeyListener {
                     case "ambulance":
                         world.onAddAmbulance(input.nextInt(), input.nextInt());
                         break;
+                    case "patient":
+                        world.onAddPatient(input.nextInt(), input.nextInt());
                 }
 
                 break;
